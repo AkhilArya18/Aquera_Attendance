@@ -1,0 +1,13 @@
+{
+    "categories": {
+        "1500": "Contract",
+        "IND": "India",
+        "US": "US",
+        "OTHER": "Contract"
+    },
+    "shifts": {
+        "global": "09:30",
+        "departments": {},
+        "employees": {}
+    }
+}

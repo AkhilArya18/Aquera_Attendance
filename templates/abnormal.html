@@ -233,6 +233,28 @@
             }
         });
 
+        // ── URL FILTERING (Drill-downs from Dashboard) ──
+        const urlParams = new URLSearchParams(window.location.search);
+        const filterStatus = urlParams.get('status');
+        const filterRisk = urlParams.get('risk');
+
+        // If clicking pie chart
+        if (filterRisk) {
+            if (filterRisk === 'Normal') {
+                $('#checkWarning, #checkHigh, #checkCritical').prop('checked', false);
+                table.column(11).search('^Normal$', true, false).draw();
+            } else if (filterRisk === 'Abnormal') {
+                $('#checkNormal').prop('checked', false);
+                // Regex for anything that is not exactly 'Normal'
+                table.column(11).search('^(?!Normal$).+$', true, false).draw();
+            }
+        }
+
+        // If clicking table badges
+        if (filterStatus) {
+            table.search(filterStatus).draw();
+        }
+
         // Toggle animation for Selective Export
         $('#btnToggleSelectiveExport').on('click', function () {
             const options = $('#selectiveExportOptions');

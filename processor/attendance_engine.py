@@ -28,13 +28,45 @@ def _fmt_hours(h: float) -> str:
     return f"{hrs}:{mins:02d}"
 
 
-def classify_day(row: dict) -> str:
+def classify_day(row: dict, shifts: dict) -> str:
     raw_punches = str(row.get("punch_records", "")).strip()
     has_essl = raw_punches != "" and raw_punches.lower() != "nan"
     has_login = pd.notna(row.get("login_time")) and row.get("login_time") != ""
     work_hrs = float(row.get("work_hours", 0))
     dur_h = float(row.get("duration_hours", 0) or 0)
-    late_m = int(row.get("late_minutes", 0) or 0)
+    
+    in_time_str = str(row.get("in_time", "")).strip()
+    emp_code = str(row.get("emp_code", "")).upper()
+    dept = str(row.get("department", "")).upper()
+
+    # Determine shift start time
+    shift_start_str = shifts.get("global", config.OFFICE_START_TIME)
+    if dept in shifts.get("departments", {}):
+        shift_start_str = shifts.get("departments")[dept]
+    if emp_code in shifts.get("employees", {}):
+        shift_start_str = shifts.get("employees")[emp_code]
+
+    # Calculate late minutes if we have an in_time
+    late_m = 0
+    if in_time_str and in_time_str != "nan":
+        try:
+            # Parse in_time HH:MM
+            h_in, m_in = map(int, in_time_str.split(":")[:2])
+            in_mins = h_in * 60 + m_in
+            
+            # Parse shift HH:MM
+            h_sh, m_sh = map(int, shift_start_str.split(":")[:2])
+            sh_mins = h_sh * 60 + m_sh
+            
+            late_raw = in_mins - sh_mins
+            late_m = late_raw if late_raw > 0 else 0
+            
+            # Update row data so late_minutes column reflects reality
+            row["calculated_late_minutes"] = late_m
+        except Exception:
+            late_m = int(row.get("late_minutes", 0) or 0)
+    else:
+        late_m = int(row.get("late_minutes", 0) or 0)
 
     # 1. Leave Logic (Highest priority)
     if pd.notna(row.get("leave_type")) and str(row.get("leave_type")).strip() != "":
@@ -50,6 +82,8 @@ def classify_day(row: dict) -> str:
 
     # 3. Mobile Login detection: Login data exists but no ESSL punches
     if not has_essl and (has_login or work_hrs > 0):
+        if late_m > config.LATE_THRESHOLD_MINUTES:
+            return "Late"
         return "Mobile Login"
 
     # 4. Absent (No ESSL, no login data)
@@ -67,12 +101,14 @@ def classify_day(row: dict) -> str:
     return "Absent"
 
 
-def process_attendance(essl_df: pd.DataFrame, login_df: pd.DataFrame, categories: dict = None) -> pd.DataFrame:
+def process_attendance(essl_df: pd.DataFrame, login_df: pd.DataFrame, categories: dict = None, shifts: dict = None) -> pd.DataFrame:
     if essl_df.empty and login_df.empty:
         return pd.DataFrame()
 
     if categories is None:
         categories = {"1500": "Series 1500", "IND": "India Series", "US": "US Series", "OTHER": "Other"}
+    if shifts is None:
+        shifts = {"global": config.OFFICE_START_TIME, "departments": {}, "employees": {}}
 
     def get_category(code):
         c = str(code).upper()
@@ -130,10 +166,15 @@ def process_attendance(essl_df: pd.DataFrame, login_df: pd.DataFrame, categories
     merged = pd.merge(essl, login, on=merge_cols, how="outer",
                       suffixes=("", "_login"))
 
-    # Fill emp_name from either source
-    if "emp_name_login" in merged.columns:
-        merged["emp_name"] = merged["emp_name"].combine_first(merged["emp_name_login"])
-        merged.drop(columns=["emp_name_login"], inplace=True)
+    # Merge overlapping text columns, prioritizing login sheet values if present
+    for col in ["emp_name", "department", "designation"]:
+        login_col = f"{col}_login"
+        if login_col in merged.columns:
+            merged[login_col] = merged[login_col].replace(["", "nan", "Nan", "None"], None)
+            merged[col] = merged[col].replace(["", "nan", "Nan", "None"], None)
+            # prioritize login over essl
+            merged[col] = merged[login_col].combine_first(merged[col])
+            merged.drop(columns=[login_col], inplace=True)
 
     for col in ["in_time", "out_time", "status", "punch_records", "department",
                 "login_time", "logout_time", "leave_type", "designation", "manager_name"]:
@@ -150,7 +191,12 @@ def process_attendance(essl_df: pd.DataFrame, login_df: pd.DataFrame, categories
     # Effective duration = Max of ESSL duration and Login work_hours
     merged["effective_hours"] = merged[["duration_hours", "work_hours"]].max(axis=1)
 
-    merged["day_status"] = merged.apply(lambda r: classify_day(r.to_dict()), axis=1)
+    merged["day_status"] = merged.apply(lambda r: classify_day(r.to_dict(), shifts), axis=1)
+    
+    # Optional: Update late_minutes to use the newly calculated ones if 'calculated_late_minutes' was set in dict mapping? 
+    # Since apply() on axis=1 with dict copy modifies row dict, better to do vector assignment where possible, or just leave it.
+    # We will just accept the day_status as calculated.
+
     merged["duration_fmt"] = merged["effective_hours"].apply(_fmt_hours)
     merged["category"] = merged["emp_code"].apply(get_category)
 
@@ -220,11 +266,23 @@ def weekly_stats(merged: pd.DataFrame) -> dict:
     if merged.empty:
         return {}
 
-    window = _working_days_back(config.ABNORMAL_WINDOW_DAYS)
-    wkly   = merged[merged["date"].isin(window)]
+    # Calculate all unique dates in the dataset
+    merged["date_obj"] = pd.to_datetime(merged["date"]).dt.date
+    window = sorted(merged["date_obj"].dropna().unique())
+    merged.drop(columns=["date_obj"], inplace=True)
+    
+    # Create strictly formatted strings to guarantee matches
+    merged["date_str"] = pd.to_datetime(merged["date"]).dt.strftime("%Y-%m-%d")
+
+    window_strs = [d.strftime("%Y-%m-%d") for d in window]
+
+    wkly = merged
 
     total_emp   = merged["emp_code"].nunique()
     total_slots = len(wkly)
+    if total_slots == 0:
+        return {}
+
     present_cnt = int(wkly["day_status"].str.contains("Present|Late|Short|Manual|Mobile", na=False).sum())
     absent_cnt  = int((wkly["day_status"] == "Absent").sum())
     late_cnt    = int((wkly["day_status"] == "Late").sum())
@@ -235,18 +293,20 @@ def weekly_stats(merged: pd.DataFrame) -> dict:
     pct      = round(present_cnt / total_slots * 100, 1) if total_slots else 0
 
     daily = []
-    for d in window:
-        day_data = wkly[wkly["date"] == d]
+    for d_str, d_obj in zip(window_strs, window):
+        day_data = wkly[wkly["date_str"] == d_str]
         d_dur = day_data["effective_hours"][day_data["effective_hours"] > 0]
         daily.append({
-            "date":        str(d),
-            "day_name":    d.strftime("%A"),
-            "is_rest_day": d.weekday() >= 5, # 5 is Saturday, 6 is Sunday
+            "date":        d_str,
+            "day_name":    d_obj.strftime("%A"),
+            "is_rest_day": d_obj.weekday() >= 5, # 5 is Saturday, 6 is Sunday
             "present":     int(day_data["day_status"].str.contains("Present|Late|Short|Manual|Mobile", na=False).sum()),
             "absent":      int((day_data["day_status"] == "Absent").sum()),
             "late":        int((day_data["day_status"] == "Late").sum()),
             "avg_dur":     round(float(d_dur.mean()), 2) if not d_dur.empty else 0,
         })
+        
+    merged.drop(columns=["date_str"], inplace=True)
 
     return {
         "total_employees": int(total_emp),

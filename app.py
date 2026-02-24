@@ -21,21 +21,36 @@ app.config["UPLOAD_FOLDER"] = config.UPLOAD_FOLDER
 os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
 
 if os.environ.get("VERCEL") == "1":
-    CATEGORIES_FILE = "/tmp/categories.json"
+    SETTINGS_FILE = "/tmp/settings.json"
 else:
-    CATEGORIES_FILE = "categories.json"
+    SETTINGS_FILE = "settings.json"
 
-def _load_categories():
-    if os.path.exists(CATEGORIES_FILE):
+def _load_settings():
+    default_settings = {
+        "categories": {"1500": "Series 1500", "IND": "India Series", "US": "US Series", "OTHER": "Other"},
+        "shifts": {
+            "global": "09:30",
+            "departments": {},
+            "employees": {}
+        }
+    }
+    if os.path.exists(SETTINGS_FILE):
         try:
-            with open(CATEGORIES_FILE, "r") as f:
-                return json.load(f)
+            with open(SETTINGS_FILE, "r") as f:
+                data = json.load(f)
+                # Merge with defaults to ensure keys exist
+                for k, v in data.items():
+                    if isinstance(v, dict) and k in default_settings:
+                        default_settings[k].update(v)
+                    else:
+                        default_settings[k] = v
+                return default_settings
         except:
             pass
-    return {"1500": "Series 1500", "IND": "India Series", "US": "US Series", "OTHER": "Other"}
+    return default_settings
 
-def _save_categories(data):
-    with open(CATEGORIES_FILE, "w") as f:
+def _save_settings(data):
+    with open(SETTINGS_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -75,14 +90,16 @@ def _load_all():
     if not os.path.exists(login_path):
         login_path = config.LOGIN_FILE_PATH
 
-    cats = _load_categories()
+    settings = _load_settings()
+    cats = settings.get("categories", {})
+    shifts = settings.get("shifts", {})
     essl_df  = load_essl(essl_path)
     login_df = load_login(login_path)
-    merged   = process_attendance(essl_df, login_df, categories=cats)
+    merged   = process_attendance(essl_df, login_df, categories=cats, shifts=shifts)
     summary  = employee_summary(merged)
     abnormal = detect_abnormal(merged)
     stats    = weekly_stats(merged)
-    return merged, summary, abnormal, stats, cats
+    return merged, summary, abnormal, stats, settings
 
 
 def _uploaded_files():
@@ -103,6 +120,14 @@ def index():
 @app.route("/dashboard")
 def dashboard():
     merged, summary, abnormal, stats, cats = _load_all()
+    # Augment stats with abnormal vs normal total counts for the pie chart
+    if stats and not abnormal.empty:
+        stats["abnormal_count"] = int((abnormal["risk_level"] != "Normal").sum())
+        stats["normal_count"]   = int((abnormal["risk_level"] == "Normal").sum())
+    else:
+        stats["abnormal_count"] = 0
+        stats["normal_count"]   = 0
+
     return render_template("dashboard.html", stats=stats,
                            uploaded=_uploaded_files(), stats_json=json.dumps(stats))
 
@@ -114,6 +139,37 @@ def employees():
     return render_template("employees.html", employees=employees_list,
                            uploaded=_uploaded_files())
 
+
+@app.route("/details")
+def details():
+    merged, summary, abnormal, stats, cats = _load_all()
+    if merged.empty:
+        flash("No data loaded yet.", "warning")
+        return redirect(url_for("dashboard"))
+        
+    date_filter = request.args.get('date')
+    status_filter = request.args.get('status')
+    leave_filter = request.args.get('leave')
+    
+    df = merged.copy()
+    
+    # Convert dates to string for safe comparison with URL params
+    df['date_str'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+    
+    title = "Attendance Details"
+    if date_filter:
+        df = df[df['date_str'] == date_filter]
+        title += f" for {date_filter}"
+    if status_filter:
+        df = df[df['day_status'] == status_filter]
+        title += f" ({status_filter})"
+    if leave_filter:
+        df = df[df['day_status'].str.startswith('On Leave', na=False)]
+        title = "Employees On Leave"
+        
+    df = df.drop(columns=['date_str'])
+    records = df.to_dict(orient="records")
+    return render_template("details.html", records=records, title=title, uploaded=_uploaded_files())
 
 @app.route("/employee/<emp_code>")
 def employee_detail(emp_code):
@@ -217,15 +273,57 @@ def api_employee_week(emp_code):
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
-    cats = _load_categories()
+    user_settings = _load_settings()
+    cats = user_settings.get("categories", {})
+    shifts = user_settings.get("shifts", {"global": "09:30", "departments": {}, "employees": {}})
+
     if request.method == "POST":
+        # Handle Categories
         new_cats = {}
         for k in cats.keys():
             new_cats[k] = request.form.get(f"cat_{k}", cats[k])
-        _save_categories(new_cats)
-        flash("Categories updated successfully!", "success")
+        
+        # Handle Shifts
+        shifts["global"] = request.form.get("global_shift", shifts.get("global", "09:30"))
+        
+        # Parse departments (format: Dept1:09:30, Dept2:10:00)
+        dept_str = request.form.get("department_shifts", "")
+        shifts["departments"] = {}
+        if dept_str.strip():
+            for pair in dept_str.split(","):
+                if ":" in pair:
+                    parts = pair.split(":")
+                    if len(parts) >= 2:
+                        dept = parts[0].strip().upper()
+                        time_val = ":".join(parts[1:]).strip()
+                        if dept and time_val:
+                            shifts["departments"][dept] = time_val
+
+        # Parse employees (format: EMP001:09:30, EMP002:10:00)
+        emp_str = request.form.get("employee_shifts", "")
+        shifts["employees"] = {}
+        if emp_str.strip():
+            for pair in emp_str.split(","):
+                if ":" in pair:
+                    parts = pair.split(":")
+                    if len(parts) >= 2:
+                        emp = parts[0].strip().upper()
+                        time_val = ":".join(parts[1:]).strip()
+                        if emp and time_val:
+                            shifts["employees"][emp] = time_val
+
+        user_settings["categories"] = new_cats
+        user_settings["shifts"] = shifts
+        _save_settings(user_settings)
+        flash("Settings updated successfully!", "success")
         return redirect(url_for("settings"))
-    return render_template("settings.html", categories=cats, uploaded=_uploaded_files())
+        
+    # Format department shifts for display
+    dept_disp = ", ".join([f"{k}:{v}" for k, v in shifts.get("departments", {}).items()])
+    emp_disp = ", ".join([f"{k}:{v}" for k, v in shifts.get("employees", {}).items()])
+    
+    return render_template("settings.html", categories=cats, shifts=shifts, 
+                           dept_disp=dept_disp, emp_disp=emp_disp, uploaded=_uploaded_files())
 
 
 @app.route("/clear/<file_type>")

@@ -116,12 +116,59 @@
             lengthMenu: [[50, 100, 500, 1000, -1], [50, 100, 500, 1000, "All"]],
             order: [[3, 'desc']],
             responsive: true,
+            initComplete: function () {
+                this.api().columns().every(function () {
+                    let column = this;
+                    let title = $(column.header()).text().trim();
+
+                    // Create container for filter
+                    let filterContainer = $('<div class="th-filter-container"></div>').appendTo($(column.header()));
+
+                    // Dropdown for discrete values
+                    if (['Department', 'Category', 'Latest Status'].includes(title)) {
+                        let select = $('<select class="form-select form-select-sm table-filter-select"><option value="">All</option></select>')
+                            .appendTo(filterContainer)
+                            .on('click', function (e) { e.stopPropagation(); }) // Prevent sorting on click
+                            .on('change', function () {
+                                let val = $.fn.dataTable.util.escapeRegex($(this).val());
+                                column.search(val ? '^' + val + '$' : '', true, false).draw();
+                            });
+
+                        // Populate options
+                        column.data().unique().sort().each(function (d, j) {
+                            if (d) {
+                                let cleanVal = d.replace(/<[^>]*>?/gm, '').trim();
+                                if (cleanVal) {
+                                    select.append('<option value="' + cleanVal + '">' + cleanVal + '</option>');
+                                }
+                            }
+                        });
+                    } else if (title && !['Present', 'Absent', 'Late', 'Short Hrs', 'On Leave', 'Avg Duration', 'Present %'].includes(title)) {
+                        // Input for search (e.g. Emp Code, Name)
+                        $('<input type="text" class="form-control form-control-sm table-filter-input" placeholder="Filter..." />')
+                            .appendTo(filterContainer)
+                            .on('click', function (e) { e.stopPropagation(); }) // Prevent sorting on click
+                            .on('keyup change clear', function () {
+                                if (column.search() !== this.value) {
+                                    column.search(this.value).draw();
+                                }
+                            });
+                    }
+                });
+            }
         });
 
         // Excel Export for Employees
         $('#btnExportEmployees').on('click', function () {
             window.location.href = '/export_excel/employees';
         });
+
+        // URL Filtering
+        const urlParams = new URLSearchParams(window.location.search);
+        const filterQuery = urlParams.get('filter') || urlParams.get('status');
+        if (filterQuery) {
+            table.search(filterQuery).draw();
+        }
     });
 </script>
 {% endif %}

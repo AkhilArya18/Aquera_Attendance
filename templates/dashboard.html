@@ -80,7 +80,11 @@
                 <div class="stat-icon purple"><i class="bi bi-calendar2-heart"></i></div>
                 <div class="stat-body">
                     <div class="stat-label">On Leave</div>
-                    <div class="stat-value">{{ stats.leave_count }}</div>
+                    <div class="stat-value">
+                        <a href="{{ url_for('details') }}?leave=1" class="text-decoration-none text-reset">
+                            {{ stats.leave_count }}
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -145,8 +149,18 @@
                         </td>
                         {% else %}
                         <td class="text-center"><span class="status-badge badge-present">{{ d.present }}</span></td>
-                        <td class="text-center"><span class="status-badge badge-absent">{{ d.absent }}</span></td>
-                        <td class="text-center"><span class="status-badge badge-late">{{ d.late }}</span></td>
+                        <td class="text-center">
+                            <a href="{{ url_for('details') }}?date={{ d.date }}&status=Absent"
+                                class="text-decoration-none">
+                                <span class="status-badge badge-absent">{{ d.absent }}</span>
+                            </a>
+                        </td>
+                        <td class="text-center">
+                            <a href="{{ url_for('details') }}?date={{ d.date }}&status=Late"
+                                class="text-decoration-none">
+                                <span class="status-badge badge-late">{{ d.late }}</span>
+                            </a>
+                        </td>
                         <td class="text-center">{{ d.avg_dur }}h</td>
                         {% endif %}
                     </tr>
@@ -173,21 +187,34 @@
     Chart.defaults.color = '#94a3b8';
     Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
 
-    // Pie chart
-    new Chart(document.getElementById('pieChart'), {
+    // Pie chart (Normal vs Abnormal)
+    const pieCtx = document.getElementById('pieChart');
+    const pieChart = new Chart(pieCtx, {
         type: 'doughnut',
         data: {
-            labels: ['Present', 'Absent', 'Late'],
+            labels: ['Normal', 'Abnormal'],
             datasets: [{
-                data: [statsData.present_count, statsData.absent_count, statsData.late_count],
-                backgroundColor: ['rgba(16,185,129,.8)', 'rgba(239,68,68,.8)', 'rgba(245,158,11,.8)'],
+                data: [statsData.normal_count, statsData.abnormal_count],
+                backgroundColor: ['rgba(16,185,129,.8)', 'rgba(239,68,68,.8)'],
                 borderWidth: 0,
                 hoverOffset: 8,
             }]
         },
         options: {
             cutout: '70%', responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 16 } } }
+            plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 16 } } },
+            onClick: (event, elements) => {
+                if (elements.length > 0) {
+                    const idx = elements[0].index;
+                    let riskFilter = '';
+                    if (idx === 0) { // Normal
+                        riskFilter = '?risk=Normal';
+                    } else if (idx === 1) { // Abnormal
+                        riskFilter = '?risk=Abnormal';
+                    }
+                    window.location.href = "{{ url_for('abnormal') }}" + riskFilter;
+                }
+            }
         }
     });
 
@@ -199,6 +226,7 @@
             datasets: [
                 { label: 'Present', data: present, backgroundColor: 'rgba(16,185,129,.7)', borderRadius: 6 },
                 { label: 'Absent', data: absent, backgroundColor: 'rgba(239,68,68,.7)', borderRadius: 6 },
+                { label: 'Late', data: late, backgroundColor: 'rgba(245,158,11,.7)', borderRadius: 6 },
             ]
         },
         options: {

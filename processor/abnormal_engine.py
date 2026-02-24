@@ -38,8 +38,11 @@ def detect_abnormal(merged: pd.DataFrame) -> pd.DataFrame:
     if merged.empty:
         return pd.DataFrame()
 
-    window = _working_days_back(config.ABNORMAL_WINDOW_DAYS)
-    wkly = merged[merged["date"].isin(window)].copy()
+    merged["date_obj"] = pd.to_datetime(merged["date"]).dt.date
+    window = sorted(merged["date_obj"].dropna().unique())
+    merged.drop(columns=["date_obj"], inplace=True)
+    
+    wkly = merged.copy()
 
     T = config.THRESHOLDS
     S = config.SCORES
