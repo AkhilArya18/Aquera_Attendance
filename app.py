@@ -10,6 +10,7 @@ from flask import (Flask, render_template, request, redirect,
 from werkzeug.utils import secure_filename
 
 import config
+from blob_api import upload_blob, fetch_blob, list_blobs, delete_blob_by_pathname
 from data_loader.load_essl  import load_essl
 from data_loader.load_login import load_login
 from processor.attendance_engine import process_attendance, employee_summary, weekly_stats
@@ -68,27 +69,57 @@ def _resolve_path(upload_name: str, default_path: str) -> str:
     return default_path
 
 
+def _use_blob():
+    """Return True when Vercel Blob should be used."""
+    return bool(os.environ.get("BLOB_READ_WRITE_TOKEN") or True)  # always try if blob_api has a fallback token
+
+
 def _load_all():
-    """Load & process both data sources. Returns (merged_df, summary_df, abnormal_df, stats)."""
-    # Resolve ESSL path (prefer .csv, then .xlsx, then .xls)
-    essl_path = os.path.join(config.UPLOAD_FOLDER, "essl_punch.csv")
-    if not os.path.exists(essl_path):
-        for ext in [".xlsx", ".xls"]:
+    """Load & process both data sources. Returns (merged_df, summary_df, abnormal_df, stats, settings)."""
+    # ── Prefer uploads folder; if on Vercel, try to pull from Blob first ─────
+    essl_path = None
+    login_path = None
+    
+    if _use_blob():
+        blobs = list_blobs()
+        blob_names = {b["pathname"] for b in blobs}
+        tmp = "/tmp"
+        os.makedirs(tmp, exist_ok=True)
+        
+        # ESSL
+        for candidate in ["essl_punch.csv", "essl_punch.xlsx", "essl_punch.xls"]:
+            if candidate in blob_names:
+                dest = os.path.join(tmp, candidate)
+                if fetch_blob(candidate, dest):
+                    essl_path = dest
+                    break
+        
+        # Login
+        for candidate in ["login_logout.xlsx", "login_logout.xls"]:
+            if candidate in blob_names:
+                dest = os.path.join(tmp, candidate)
+                if fetch_blob(candidate, dest):
+                    login_path = dest
+                    break
+    
+    if not essl_path:
+        # Fall back to the local uploads folder or Downloads dir
+        for ext in [".csv", ".xlsx", ".xls"]:
             alt = os.path.join(config.UPLOAD_FOLDER, "essl_punch" + ext)
             if os.path.exists(alt):
                 essl_path = alt
                 break
-    if not os.path.exists(essl_path):
-        essl_path = config.ESSL_FILE_PATH
+        if not essl_path:
+            essl_path = config.ESSL_FILE_PATH
 
-    # Resolve Login path (prefer .xlsx, then .xls)
-    login_path = os.path.join(config.UPLOAD_FOLDER, "login_logout.xlsx")
-    if not os.path.exists(login_path):
-        alt = os.path.join(config.UPLOAD_FOLDER, "login_logout.xls")
-        if os.path.exists(alt):
-            login_path = alt
-    if not os.path.exists(login_path):
-        login_path = config.LOGIN_FILE_PATH
+    if not login_path:
+        for ext in [".xlsx", ".xls"]:
+            alt = os.path.join(config.UPLOAD_FOLDER, "login_logout" + ext)
+            if os.path.exists(alt):
+                login_path = alt
+                break
+        if not login_path:
+            login_path = config.LOGIN_FILE_PATH
 
     settings = _load_settings()
     cats = settings.get("categories", {})
@@ -103,10 +134,16 @@ def _load_all():
 
 
 def _uploaded_files():
-    """Return dict of which uploaded files exist."""
+    """Return dict of which uploaded files exist (checks Blob OR local disk)."""
     res = {}
-    for name in ["essl_punch.csv", "essl_punch.xlsx", "login_logout.xlsx", "login_logout.xls"]:
-        res[name] = os.path.exists(os.path.join(config.UPLOAD_FOLDER, name))
+    if _use_blob():
+        blobs = list_blobs()
+        blob_names = {b["pathname"] for b in blobs}
+        for name in ["essl_punch.csv", "essl_punch.xlsx", "login_logout.xlsx", "login_logout.xls"]:
+            res[name] = name in blob_names
+    else:
+        for name in ["essl_punch.csv", "essl_punch.xlsx", "login_logout.xlsx", "login_logout.xls"]:
+            res[name] = os.path.exists(os.path.join(config.UPLOAD_FOLDER, name))
     return res
 
 
@@ -234,8 +271,23 @@ def upload():
             return redirect(url_for("upload"))
 
         save_path = os.path.join(config.UPLOAD_FOLDER, save_name)
-        f.save(save_path)
-        flash(f"File uploaded successfully as '{save_name}'!", "success")
+        file_bytes = f.read()
+        
+        if _use_blob():
+            # Push to Vercel Blob for persistence
+            ext_lower = ext.lower()
+            ct_map = {"csv": "text/csv", "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xls": "application/vnd.ms-excel"}
+            result = upload_blob(save_name, file_bytes, content_type=ct_map.get(ext_lower, "application/octet-stream"))
+            if result:
+                flash(f"File uploaded to Vercel Blob as '{save_name}'!", "success")
+            else:
+                flash("Upload to Blob failed. Trying local save.", "warning")
+                with open(save_path, "wb") as fh:
+                    fh.write(file_bytes)
+        else:
+            with open(save_path, "wb") as fh:
+                fh.write(file_bytes)
+            flash(f"File uploaded successfully as '{save_name}'!", "success")
         return redirect(url_for("dashboard"))
 
     return render_template("upload.html", uploaded=_uploaded_files())
@@ -328,11 +380,16 @@ def settings():
 
 @app.route("/clear/<file_type>")
 def clear_upload(file_type):
-    for name in os.listdir(config.UPLOAD_FOLDER):
-        if (file_type == "essl"  and name.startswith("essl_punch")) or \
-           (file_type == "login" and name.startswith("login_logout")):
-            os.remove(os.path.join(config.UPLOAD_FOLDER, name))
-    flash(f"Cleared {file_type} upload. Will use default Downloads path.", "info")
+    if _use_blob():
+        for name in ["essl_punch.csv", "essl_punch.xlsx", "essl_punch.xls"] if file_type == "essl" \
+                 else ["login_logout.xlsx", "login_logout.xls"]:
+            delete_blob_by_pathname(name)
+    else:
+        for name in os.listdir(config.UPLOAD_FOLDER):
+            if (file_type == "essl"  and name.startswith("essl_punch")) or \
+               (file_type == "login" and name.startswith("login_logout")):
+                os.remove(os.path.join(config.UPLOAD_FOLDER, name))
+    flash(f"Cleared {file_type} upload.", "info")
     return redirect(url_for("upload"))
 
 
