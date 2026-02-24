@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+{% block title %}Abnormal Report – Aquera Attendance{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+
+    <div class="page-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h1><i class="bi bi-exclamation-triangle me-2 text-warning"></i>Abnormal Employee Report</h1>
+                <p>Employees flagged based on last 7 working days — sorted by risk score</p>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+                <span class="status-badge risk-normal">Normal (0–20)</span>
+                <span class="status-badge risk-warning">Warning (21–40)</span>
+                <span class="status-badge risk-danger">High Risk (41–60)</span>
+                <span class="status-badge risk-dark">Critical (60+)</span>
+            </div>
+        </div>
+    </div>
+
+    {% if not employees %}
+    <div class="glass-card empty-state">
+        <i class="bi bi-check-circle text-success"></i>
+        <h5>No Abnormal Records</h5>
+        <p class="text-muted">All employees appear regular, or no data is loaded yet.</p>
+        <a href="{{ url_for('upload') }}" class="btn btn-primary mt-2">Upload Data</a>
+    </div>
+    {% else %}
+
+    <!-- Summary Counts -->
+    <div class="row g-3 mb-4">
+        {% set critical = employees|selectattr('risk_level','equalto','Critical')|list|length %}
+        {% set high = employees|selectattr('risk_level','equalto','High Risk')|list|length %}
+        {% set warning = employees|selectattr('risk_level','equalto','Warning')|list|length %}
+        {% set normal = employees|selectattr('risk_level','equalto','Normal')|list|length %}
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon" style="background:rgba(15,15,15,.6);color:#e2e8f0"><i
+                        class="bi bi-exclamation-octagon-fill"></i></div>
+                <div class="stat-body">
+                    <div class="stat-label">Critical</div>
+                    <div class="stat-value">{{ critical }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon red"><i class="bi bi-exclamation-circle-fill"></i></div>
+                <div class="stat-body">
+                    <div class="stat-label">High Risk</div>
+                    <div class="stat-value">{{ high }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon amber"><i class="bi bi-exclamation-triangle-fill"></i></div>
+                <div class="stat-body">
+                    <div class="stat-label">Warning</div>
+                    <div class="stat-value">{{ warning }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon green"><i class="bi bi-check-circle-fill"></i></div>
+                <div class="stat-body">
+                    <div class="stat-label">Normal</div>
+                    <div class="stat-value">{{ normal }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Section -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-body p-3">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-3"
+                style="position: relative; overflow: hidden;">
+                <button id="btnToggleSelectiveExport"
+                    class="btn btn-outline-secondary rounded-3 px-4 shadow-sm z-1 bg-white">
+                    <i class="bi bi-funnel"></i> Selective Export
+                </button>
+                <div id="selectiveExportOptions" class="d-flex align-items-center gap-3 bg-white"
+                    style="position: absolute; left: 160px; top: 0; bottom: 0; transform: translateX(-150%); transition: transform 0.4s ease-out; z-index: 0; padding-left: 10px;">
+                    <span class="fw-bold text-muted small me-2">CHOOSE RISKS:</span>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="checkNormal" value="Normal" checked>
+                        <label class="form-check-label small" for="checkNormal">Normal</label>
+                    </div>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="checkWarning" value="Warning" checked>
+                        <label class="form-check-label small" for="checkWarning">Warning</label>
+                    </div>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="checkHigh" value="High Risk" checked>
+                        <label class="form-check-label small" for="checkHigh">High Risk</label>
+                    </div>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="checkCritical" value="Critical" checked>
+                        <label class="form-check-label small" for="checkCritical">Critical</label>
+                    </div>
+                    <button id="btnExportSelective" class="btn btn-success btn-sm rounded-3 px-3 ms-2 shadow-sm">
+                        <i class="bi bi-file-earmark-spreadsheet me-1"></i> Export Excel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="glass-card">
+        <div class="table-responsive">
+            <table id="abnTable" class="table table-borderless w-100">
+                <thead>
+                    <tr>
+                        <th>Emp Code</th>
+                        <th>Name</th>
+                        <th>Department</th>
+                        <th>Category</th>
+                        <th class="text-center">Present</th>
+                        <th class="text-center">Absent</th>
+                        <th class="text-center">Late</th>
+                        <th class="text-center">Short Hrs</th>
+                        <th class="text-center">Incomplete</th>
+                        <th class="text-center">Present %</th>
+                        <th class="text-center">Score</th>
+                        <th class="text-center">Risk Level</th>
+                        <th>Flags</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for emp in employees %}
+                    <tr>
+                        <td><code>{{ emp.emp_code }}</code></td>
+                        <td>
+                            <a class="emp-link employee-modal-trigger" href="#" data-emp-code="{{ emp.emp_code }}"
+                                data-emp-name="{{ emp.emp_name }}" data-bs-toggle="modal"
+                                data-bs-target="#employeeModal">
+                                {{ emp.emp_name }}
+                            </a>
+                        </td>
+                        <td><span class="text-muted small">{{ emp.department|upper }}</span></td>
+                        <td><span class="text-muted small">{{ emp.category }}</span></td>
+                        <td class="text-center">{{ emp.present_days }}</td>
+                        <td class="text-center">{{ emp.absent_days }}</td>
+                        <td class="text-center">{{ emp.late_days }}</td>
+                        <td class="text-center">{{ emp.short_days }}</td>
+                        <td class="text-center">{{ emp.incomplete }}</td>
+                        <td class="text-center">
+                            <div style="min-width:60px">
+                                <div class="mini-bar">
+                                    <div class="mini-bar-fill" style="width:{{ emp.pct_present }}%"></div>
+                                </div>
+                                <small>{{ emp.pct_present }}%</small>
+                            </div>
+                        </td>
+                        <td class="text-center">
+                            <div class="score-bar mb-1">
+                                <div class="score-bar-fill" style="width:{{ [emp.score, 100]|min }}%;
+                            background: {% if emp.score > 60 %}#6b7280
+                                        {% elif emp.score > 40 %}#ef4444
+                                        {% elif emp.score > 20 %}#f59e0b
+                                        {% else %}#10b981{% endif %}"></div>
+                            </div>
+                            <strong>{{ emp.score }}</strong>
+                        </td>
+                        <td class="text-center">
+                            <span class="status-badge risk-{{ emp.risk_class }}">{{ emp.risk_level }}</span>
+                        </td>
+                        <td><small class="text-muted">{{ emp.flags }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if employees %}
+<script>
+    $(document).ready(function () {
+        const table = $('#abnTable').DataTable({
+            pageLength: 50,
+            lengthMenu: [[50, 100, 500, 1000], [50, 100, 500, 1000]],
+            order: [[9, 'desc']],
+            dom: "<'row'<'col-sm-12 col-md-6'l><'col-sm-12 col-md-6'f>>" +
+                "<'row'<'col-sm-12'tr>>" +
+                "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>",
+            initComplete: function () {
+                this.api().columns().every(function () {
+                    let column = this;
+                    let title = $(column.header()).text().trim();
+
+                    // Create container for filter
+                    let filterContainer = $('<div class="th-filter-container"></div>').appendTo($(column.header()));
+
+                    // Dropdown for discrete values
+                    if (['Category', 'Risk Level', 'Designation', 'Manager', 'Department'].includes(title)) {
+                        let select = $('<select class="form-select form-select-sm table-filter-select"><option value="">All</option></select>')
+                            .appendTo(filterContainer)
+                            .on('click', function (e) { e.stopPropagation(); }) // Prevent sorting on click
+                            .on('change', function () {
+                                let val = $.fn.dataTable.util.escapeRegex($(this).val());
+                                column.search(val ? '^' + val + '$' : '', true, false).draw();
+                            });
+
+                        // Populate options
+                        column.data().unique().sort().each(function (d, j) {
+                            if (d) {
+                                let cleanVal = d.replace(/<[^>]*>?/gm, '').trim();
+                                if (cleanVal) {
+                                    select.append('<option value="' + cleanVal + '">' + cleanVal + '</option>');
+                                }
+                            }
+                        });
+                    } else if (title && !['Score', 'Absent', 'Late', 'Short'].includes(title)) {
+                        // Input for search
+                        $('<input type="text" class="form-control form-control-sm table-filter-input" placeholder="Filter..." />')
+                            .appendTo(filterContainer)
+                            .on('click', function (e) { e.stopPropagation(); }) // Prevent sorting on click
+                            .on('keyup change clear', function () {
+                                if (column.search() !== this.value) {
+                                    column.search(this.value).draw();
+                                }
+                            });
+                    }
+                });
+            }
+        });
+
+        // Toggle animation for Selective Export
+        $('#btnToggleSelectiveExport').on('click', function () {
+            const options = $('#selectiveExportOptions');
+            if (options.css('transform') !== 'matrix(1, 0, 0, 1, 0, 0)') { // meaning it's hidden
+                options.css('transform', 'translateX(0)');
+            } else {
+                options.css('transform', 'translateX(-150%)');
+            }
+        });
+
+        // Custom Selective Export
+        $('#btnExportSelective').on('click', function () {
+            const selectedRisks = [];
+            if ($('#checkNormal').is(':checked')) selectedRisks.push('Normal');
+            if ($('#checkWarning').is(':checked')) selectedRisks.push('Warning');
+            if ($('#checkHigh').is(':checked')) selectedRisks.push('High Risk');
+            if ($('#checkCritical').is(':checked')) selectedRisks.push('Critical');
+
+            if (selectedRisks.length === 0) {
+                alert("Please select at least one risk level to export.");
+                return;
+            }
+
+            const risksParam = selectedRisks.join(',');
+            window.location.href = `/export_excel/abnormal?risks=${encodeURIComponent(risksParam)}`;
+        });
+
+    });
+</script>
+{% endif %}
+{% endblock %}

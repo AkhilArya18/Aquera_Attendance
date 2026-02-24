@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}{{ emp_name }} – Aquera Attendance{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+
+    <!-- Header -->
+    <div class="page-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <a href="{{ url_for('employees') }}" class="text-muted text-decoration-none small">
+                    <i class="bi bi-arrow-left me-1"></i>All Employees
+                </a>
+                <h1 class="mt-1">{{ emp_name }}</h1>
+                <p><code>{{ emp_code }}</code></p>
+            </div>
+            {% if ab_info %}
+            <div class="text-end">
+                <div class="stat-badge risk-{{ ab_info.risk_class }} status-badge fs-6 px-3 py-2">
+                    {{ ab_info.risk_level }} — Score {{ ab_info.score }}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Summary Row -->
+    {% if emp_info %}
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-2">
+            <div class="stat-card">
+                <div class="stat-icon green"><i class="bi bi-person-check"></i></div>
+                <div class="stat-body">
+                    <div class="stat-label">Present</div>
+                    <div class="stat-value">{{ emp_info.present_days }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="stat-card">
+                <div class="stat-icon red"><i class="bi bi-person-x"></i></div>
+                <div class="stat-body">
+                    <div class="stat-label">Absent</div>
+                    <div class="stat-value">{{ emp_info.absent_days }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="stat-card">
+                <div class="stat-icon amber"><i class="bi bi-clock"></i></div>
+                <div class="stat-body">
+                    <div class="stat-label">Late Days</div>
+                    <div class="stat-value">{{ emp_info.late_count }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="stat-card">
+                <div class="stat-icon blue"><i class="bi bi-hourglass"></i></div>
+                <div class="stat-body">
+                    <div class="stat-label">Avg Duration</div>
+                    <div class="stat-value">{{ emp_info.avg_duration }}<small>h</small></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="stat-card">
+                <div class="stat-icon purple"><i class="bi bi-calendar2-heart"></i></div>
+                <div class="stat-body">
+                    <div class="stat-label">On Leave</div>
+                    <div class="stat-value">{{ emp_info.on_leave }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="stat-card">
+                <div class="stat-icon indigo"><i class="bi bi-percent"></i></div>
+                <div class="stat-body">
+                    <div class="stat-label">Present %</div>
+                    <div class="stat-value">{{ emp_info.pct_present }}<small>%</small></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Abnormal Flags -->
+    {% if ab_info and ab_info.flags != '—' %}
+    <div class="glass-card mb-4" style="border-color: rgba(239,68,68,0.3)">
+        <h6 class="text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Abnormal Flags</h6>
+        <p class="mb-0">{{ ab_info.flags }}</p>
+    </div>
+    {% endif %}
+
+    <!-- Day-wise Table -->
+    <div class="glass-card">
+        <h6 class="mb-3 text-muted fw-600"><i class="bi bi-calendar3 me-1"></i>Day-wise Attendance</h6>
+        <div class="table-responsive">
+            <table id="detailTable" class="table table-borderless w-100">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>In Time</th>
+                        <th>Out Time</th>
+                        <th>Duration</th>
+                        <th>Late By</th>
+                        <th>Early By</th>
+                        <th>Login</th>
+                        <th>Logout</th>
+                        <th>Leave</th>
+                        <th>Punch Records</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in records %}
+                    {% set st = r.day_status %}
+                    {% if 'Present' in st or 'Manual' in st %}
+                    {% set cls = 'badge-present' %}
+                    {% elif 'Absent' in st %}
+                    {% set cls = 'badge-absent' %}
+                    {% elif 'Late' in st %}
+                    {% set cls = 'badge-late' %}
+                    {% elif 'Short' in st %}
+                    {% set cls = 'badge-short' %}
+                    {% elif 'Leave' in st %}
+                    {% set cls = 'badge-leave' %}
+                    {% elif 'Incomplete' in st %}
+                    {% set cls = 'badge-incomplete' %}
+                    {% else %}
+                    {% set cls = '' %}
+                    {% endif %}
+                    <tr>
+                        <td><strong>{{ r.date }}</strong></td>
+                        <td><span class="status-badge {{ cls }}">{{ st }}</span></td>
+                        <td>{{ r.in_time or '—' }}</td>
+                        <td>{{ r.out_time or '—' }}</td>
+                        <td>{{ r.duration_hours ~ 'h' if r.duration_hours else '—' }}</td>
+                        <td>{{ (r.late_minutes ~ ' min') if r.late_minutes else '—' }}</td>
+                        <td>{{ (r.early_minutes ~ ' min') if r.early_minutes else '—' }}</td>
+                        <td>{{ r.login_time or '—' }}</td>
+                        <td>{{ r.logout_time or '—' }}</td>
+                        <td>{{ r.leave_type or '—' }}</td>
+                        <td>
+                            <small class="text-muted">{{ r.punch_records or '—' }}</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function () {
+        $('#detailTable').DataTable({
+            pageLength: 31,
+            order: [[0, 'desc']],
+            responsive: true,
+            language: { searchPlaceholder: 'Filter records...' }
+        });
+    });
+</script>
+{% endblock %}

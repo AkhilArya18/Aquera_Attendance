@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Upload Data – Aquera Attendance{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+
+    <div class="page-header">
+        <h1><i class="bi bi-cloud-upload me-2"></i>Upload Data Files</h1>
+        <p>Upload your ESSL punch CSV and/or Login-Logout attendance Excel. Files are persisted until you clear them.
+        </p>
+    </div>
+
+    <div class="row g-4">
+
+        <!-- ESSL Upload -->
+        <div class="col-md-6 fade-up fade-up-1">
+            <div class="glass-card h-100">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0"><i class="bi bi-file-earmark-spreadsheet me-2 text-indigo-400"></i>ESSL Punch
+                        Report</h5>
+                    {% if uploaded.get('essl_punch.csv') or uploaded.get('essl_punch.xlsx') %}
+                    <span class="status-badge badge-present"><i class="bi bi-check-circle me-1"></i>Uploaded</span>
+                    {% else %}
+                    <span class="status-badge badge-absent">Not uploaded</span>
+                    {% endif %}
+                </div>
+
+                <p class="text-muted small mb-3">
+                    The exported CSV/XLS from ESSL software containing punch records — break hours, in/out times,
+                    duration, late, early by, and status columns.
+                    <br><br>
+                    <strong>Accepts:</strong> <code>.csv</code>, <code>.xlsx</code>, <code>.xls</code>
+                    <br>If not uploaded, auto-loads from:
+                    <code>{{ config.ESSL_FILE_PATH if config else '/Users/akhil/Downloads/essl_punch.csv' }}</code>
+                </p>
+
+                <form method="POST" enctype="multipart/form-data" action="{{ url_for('upload') }}">
+                    <input type="hidden" name="file_type" value="essl" />
+                    <div class="upload-zone mb-3" onclick="document.getElementById('esslFile').click()">
+                        <div class="upload-icon"><i class="bi bi-file-earmark-bar-graph"></i></div>
+                        <p class="mb-1 fw-600">Drop ESSL CSV / Excel here</p>
+                        <p class="text-muted small">or click to browse</p>
+                        <input type="file" id="esslFile" name="file" class="d-none" accept=".csv,.xlsx,.xls"
+                            onchange="showName(this,'esslName')" />
+                    </div>
+                    <p id="esslName" class="text-muted small mb-2"></p>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-upload me-2"></i>Upload ESSL File
+                    </button>
+                </form>
+
+                {% if uploaded.get('essl_punch.csv') or uploaded.get('essl_punch.xlsx') %}
+                <div class="mt-2 text-center">
+                    <a href="{{ url_for('clear_upload', file_type='essl') }}"
+                        class="text-danger small text-decoration-none">
+                        <i class="bi bi-trash me-1"></i>Clear uploaded file (revert to Downloads)
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Login-Logout Upload -->
+        <div class="col-md-6 fade-up fade-up-2">
+            <div class="glass-card h-100">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0"><i class="bi bi-file-earmark-excel me-2 text-green-400"></i>Attendance Report
+                        (Leave Sheet)</h5>
+                    {% if uploaded.get('login_logout.xlsx') or uploaded.get('login_logout.xls') %}
+                    <span class="status-badge badge-present"><i class="bi bi-check-circle me-1"></i>Uploaded</span>
+                    {% else %}
+                    <span class="status-badge badge-absent">Not uploaded</span>
+                    {% endif %}
+                </div>
+
+                <p class="text-muted small mb-3">
+                    Login / Logout report that also contains leave entries (EL, CL, SL, ML, etc.).
+                    Leave types are auto-detected from the status or remarks column.
+                    <br><br>
+                    <strong>Accepts:</strong> <code>.xlsx</code>, <code>.xls</code>, <code>.csv</code>
+                    <br>If not uploaded, auto-loads from:
+                    <code>{{ config.LOGIN_FILE_PATH if config else '/Users/akhil/Downloads/login_logout.xlsx' }}</code>
+                </p>
+
+                <form method="POST" enctype="multipart/form-data" action="{{ url_for('upload') }}">
+                    <input type="hidden" name="file_type" value="login" />
+                    <div class="upload-zone mb-3" onclick="document.getElementById('loginFile').click()">
+                        <div class="upload-icon" style="color:#10b981"><i class="bi bi-calendar2-check"></i></div>
+                        <p class="mb-1 fw-600">Drop Attendance / Leave Excel here</p>
+                        <p class="text-muted small">or click to browse</p>
+                        <input type="file" id="loginFile" name="file" class="d-none" accept=".csv,.xlsx,.xls"
+                            onchange="showName(this,'loginName')" />
+                    </div>
+                    <p id="loginName" class="text-muted small mb-2"></p>
+                    <button type="submit" class="btn w-100" style="background:#10b981;color:#fff">
+                        <i class="bi bi-upload me-2"></i>Upload Leave / Login File
+                    </button>
+                </form>
+
+                {% if uploaded.get('login_logout.xlsx') or uploaded.get('login_logout.xls') %}
+                <div class="mt-2 text-center">
+                    <a href="{{ url_for('clear_upload', file_type='login') }}"
+                        class="text-danger small text-decoration-none">
+                        <i class="bi bi-trash me-1"></i>Clear uploaded file (revert to Downloads)
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+    </div><!-- /row -->
+
+    <!-- Info Box -->
+    <div class="glass-card mt-4 fade-up" style="border-color:rgba(99,102,241,0.3)">
+        <h6 class="text-indigo mb-2"><i class="bi bi-info-circle me-1"></i> How It Works</h6>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <span class="text-indigo fs-5"><i class="bi bi-1-circle-fill"></i></span>
+                    <div>
+                        <strong>Upload files once</strong><br>
+                        <small class="text-muted">Uploaded files are kept in the server's <code>uploads/</code> folder
+                            and used on every page load.</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <span class="text-indigo fs-5"><i class="bi bi-2-circle-fill"></i></span>
+                    <div>
+                        <strong>Auto-refresh on page load</strong><br>
+                        <small class="text-muted">No cache. Every browser refresh re-reads and re-processes the latest
+                            file.</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <span class="text-indigo fs-5"><i class="bi bi-3-circle-fill"></i></span>
+                    <div>
+                        <strong>Default Downloads fallback</strong><br>
+                        <small class="text-muted">If no file is uploaded, the system reads from
+                            <code>/Users/akhil/Downloads/</code> automatically.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function showName(input, targetId) {
+        const target = document.getElementById(targetId);
+        if (input.files && input.files[0]) {
+            target.innerHTML = '<i class="bi bi-file-check me-1"></i> ' + input.files[0].name;
+        }
+    }
+
+    // Drag-and-drop highlight
+    document.querySelectorAll('.upload-zone').forEach(zone => {
+        zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+        zone.addEventListener('drop', e => {
+            e.preventDefault(); zone.classList.remove('dragover');
+            const input = zone.querySelector('input[type=file]');
+            if (input && e.dataTransfer.files.length) {
+                input.files = e.dataTransfer.files;
+                const nameId = input.id === 'esslFile' ? 'esslName' : 'loginName';
+                document.getElementById(nameId).innerHTML =
+                    '<i class="bi bi-file-check me-1"></i> ' + e.dataTransfer.files[0].name;
+            }
+        });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Attendance System{% endblock %}</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <!-- DataTables Bootstrap 5 -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css">
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  {% block head %}{% endblock %}
+</head>
+
+<body>
+
+  <!-- ── NAVBAR ─────────────────────────────────────────────────────────────── -->
+  <nav class="navbar navbar-dark fixed-top" id="mainNav">
+    <div class="container-fluid px-4">
+      <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('dashboard') }}">
+        <div class="brand-icon"><i class="bi bi-activity"></i></div>
+        <span class="fw-700">Aquera Attendance</span>
+      </a>
+
+      <div class="d-flex align-items-center gap-2">
+        <a href="{{ url_for('dashboard') }}" class="nav-pill {% if request.endpoint=='dashboard' %}active{% endif %}">
+          <i class="bi bi-speedometer2"></i> Dashboard
+        </a>
+        <a href="{{ url_for('employees') }}"
+          class="nav-pill {% if request.endpoint=='employees' or request.endpoint=='employee_detail' %}active{% endif %}">
+          <i class="bi bi-people"></i> Employees
+        </a>
+        <a href="{{ url_for('abnormal') }}" class="nav-pill {% if request.endpoint=='abnormal' %}active{% endif %}">
+          <i class="bi bi-exclamation-triangle"></i> Abnormal
+        </a>
+        <a href="{{ url_for('upload') }}" class="nav-pill {% if request.endpoint=='upload' %}active{% endif %}">
+          <i class="bi bi-cloud-upload"></i> Upload
+        </a>
+        <a href="{{ url_for('settings') }}" class="nav-pill {% if request.endpoint=='settings' %}active{% endif %}">
+          <i class="bi bi-gear-fill"></i> Settings
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── CONTENT ────────────────────────────────────────────────────────────── -->
+  <div class="main-content">
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="container-fluid px-4 pt-3">
+      {% for cat, msg in messages %}
+      <div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">
+        <i class="bi bi-info-circle me-2"></i>{{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </div>
+
+  <!-- Shared Employee Detail Modal -->
+  <div class="modal fade" id="employeeModal" tabindex="-1" aria-labelledby="employeeModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content glass-card p-0" style="background: var(--bg-card); color: var(--text-dark);">
+        <div class="modal-header border-bottom-0 pb-0">
+          <h5 class="modal-title fw-700" id="employeeModalLabel">Employee Weekly Report</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body pt-3" id="modalBody">
+          <div class="text-center py-5" id="modalLoading">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+          </div>
+          <div class="d-none" id="modalContent">
+            <div class="row mb-4">
+              <div class="col-md-6">
+                <p class="mb-1 text-muted small text-uppercase fw-600">Employee Details</p>
+                <h4 id="modalEmpName" class="mb-0 fw-700"></h4>
+                <p id="modalEmpCode" class="text-muted"></p>
+              </div>
+              <div class="col-md-6 text-md-end">
+                <p class="mb-0"><span class="text-muted">Designation:</span> <span id="modalDesignation"
+                    class="fw-600"></span>
+                </p>
+                <p class="mb-0"><span class="text-muted">Manager:</span> <span id="modalManager" class="fw-600"></span>
+                </p>
+              </div>
+            </div>
+
+            <p class="mb-2 text-muted small text-uppercase fw-600">Last 7 Working Days Report</p>
+            <div class="table-responsive">
+              <table class="table table-sm daily-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Status</th>
+                    <th>In Time</th>
+                    <th>Out Time</th>
+                    <th class="text-center">Worked Hours</th>
+                  </tr>
+                </thead>
+                <tbody id="modalTableBody">
+                  <!-- Rows populated by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SCRIPTS ────────────────────────────────────────────────────────────── -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.bootstrap5.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script>
+    // Global Employee Modal Handler
+    $(document).on('click', '.employee-modal-trigger', function (e) {
+      e.preventDefault();
+      const empCode = $(this).data('emp-code');
+      const empName = $(this).data('emp-name');
+
+      $('#modalEmpName').text(empName);
+      $('#modalEmpCode').text('ID: ' + empCode);
+      $('#modalLoading').removeClass('d-none');
+      $('#modalContent').addClass('d-none');
+      $('#modalTableBody').empty();
+
+      // The modal is automatically shown by Bootstrap via data-bs-toggle="modal"
+      // data-bs-target="#employeeModal" attributes in the anchor tag.
+      // We just need to load the data here.
+
+      fetch('/api/employee/' + empCode + '/week')
+        .then(response => response.json())
+        .then(data => {
+          if (data.error) {
+            $('#modalBody').append('<div class="alert alert-danger">' + data.error + '</div>');
+            return;
+          }
+
+          $('#modalDesignation').text(data.info.designation || '—');
+          $('#modalManager').text(data.info.manager_name || '—');
+
+          data.records.forEach(row => {
+            let badgeClass = '';
+            const st = row.day_status;
+            if (st.includes('Present') || st.includes('Manual')) badgeClass = 'badge-present';
+            else if (st.includes('Absent')) badgeClass = 'badge-absent';
+            else if (st.includes('Late')) badgeClass = 'badge-late';
+            else if (st.includes('Short')) badgeClass = 'badge-short';
+            else if (st.includes('Leave')) badgeClass = 'badge-leave';
+            else badgeClass = 'badge-incomplete';
+
+            const tr = `
+              <tr>
+                <td>${row.date_str}</td>
+                <td><span class="status-badge ${badgeClass}">${st}</span></td>
+                <td>${row.in_time || '—'}</td>
+                <td>${row.out_time || '—'}</td>
+                <td class="text-center fw-600">${row.duration_fmt || '—'}</td>
+              </tr>
+            `;
+            $('#modalTableBody').append(tr);
+          });
+
+          $('#modalLoading').addClass('d-none');
+          $('#modalContent').removeClass('d-none');
+        })
+        .catch(err => {
+          console.error(err);
+          $('#modalLoading').addClass('d-none');
+          $('#modalBody').append('<div class="alert alert-danger">Error loading data</div>');
+        });
+    });
+
+    // Cleanup modal backdrops if they get stuck when navigating away or closing quickly
+    $('#employeeModal').on('hidden.bs.modal', function () {
+      $('.modal-backdrop').remove();
+      $('body').removeClass('modal-open');
+      $('body').css('padding-right', '');
+      $('body').css('overflow', '');
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+
+</html>
