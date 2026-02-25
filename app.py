@@ -437,6 +437,27 @@ def export_excel(report_type):
     response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     return response
 
+@app.route("/debug/blob")
+def debug_blob():
+    """Diagnostic endpoint - shows Blob token status and store contents."""
+    from blob_api import _token
+    token_val = _token()
+    has_env_token = bool(os.environ.get("BLOB_READ_WRITE_TOKEN"))
+
+    # Try a live upload test
+    test_result = upload_blob("debug_test.txt", b"token_test", "text/plain")
+
+    blobs = list_blobs()
+    return jsonify({
+        "env_BLOB_READ_WRITE_TOKEN_set": has_env_token,
+        "token_prefix": token_val[:30] + "..." if token_val else None,
+        "test_upload_ok": test_result is not None,
+        "test_upload_pathname": test_result.get("pathname") if test_result else None,
+        "blobs": [{"pathname": b.get("pathname"), "size": b.get("size")} for b in blobs],
+        "vercel": os.environ.get("VERCEL"),
+    })
+
+
 if __name__ == "__main__":
     print("=" * 55)
     print(f"  Attendance Website  →  http://127.0.0.1:{config.PORT}")
