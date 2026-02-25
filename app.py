@@ -70,8 +70,8 @@ def _resolve_path(upload_name: str, default_path: str) -> str:
 
 
 def _use_blob():
-    """Return True when Vercel Blob should be used."""
-    return bool(os.environ.get("BLOB_READ_WRITE_TOKEN") or True)  # always try if blob_api has a fallback token
+    """Return True when Vercel Blob should be used (token must be set)."""
+    return bool(os.environ.get("BLOB_READ_WRITE_TOKEN"))
 
 
 def _load_all():
@@ -80,9 +80,13 @@ def _load_all():
     essl_path = None
     login_path = None
     
-    if _use_blob():
+    use_blob = _use_blob()
+    print(f"[Debug] _load_all start. use_blob={use_blob}")
+
+    if use_blob:
         blobs = list_blobs()
         blob_names = {b["pathname"] for b in blobs}
+        print(f"[Debug] Blobs in store: {list(blob_names)}")
         tmp = "/tmp"
         os.makedirs(tmp, exist_ok=True)
         
@@ -92,6 +96,7 @@ def _load_all():
                 dest = os.path.join(tmp, candidate)
                 if fetch_blob(candidate, dest):
                     essl_path = dest
+                    print(f"[Debug] Picked ESSL from Blob: {candidate}")
                     break
         
         # Login
@@ -100,6 +105,7 @@ def _load_all():
                 dest = os.path.join(tmp, candidate)
                 if fetch_blob(candidate, dest):
                     login_path = dest
+                    print(f"[Debug] Picked Login from Blob: {candidate}")
                     break
     
     if not essl_path:
@@ -108,18 +114,22 @@ def _load_all():
             alt = os.path.join(config.UPLOAD_FOLDER, "essl_punch" + ext)
             if os.path.exists(alt):
                 essl_path = alt
+                print(f"[Debug] Fallback: ESSL local path found: {essl_path}")
                 break
         if not essl_path:
             essl_path = config.ESSL_FILE_PATH
+            print(f"[Debug] Default ESSL path: {essl_path}")
 
     if not login_path:
         for ext in [".xlsx", ".xls"]:
             alt = os.path.join(config.UPLOAD_FOLDER, "login_logout" + ext)
             if os.path.exists(alt):
                 login_path = alt
+                print(f"[Debug] Fallback: Login local path found: {login_path}")
                 break
         if not login_path:
             login_path = config.LOGIN_FILE_PATH
+            print(f"[Debug] Default Login path: {login_path}")
 
     settings = _load_settings()
     cats = settings.get("categories", {})
@@ -279,15 +289,16 @@ def upload():
             ct_map = {"csv": "text/csv", "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xls": "application/vnd.ms-excel"}
             result = upload_blob(save_name, file_bytes, content_type=ct_map.get(ext_lower, "application/octet-stream"))
             if result:
-                flash(f"File uploaded to Vercel Blob as '{save_name}'!", "success")
+                flash(f"Successfully uploaded '{save_name}' to persistent Vercel Blob storage.", "success")
+                return redirect(url_for("dashboard"))
             else:
-                flash("Upload to Blob failed. Trying local save.", "warning")
+                flash("CRITICAL: Failed to upload to Vercel Blob (Persistence will NOT work). Falling back to temporary storage.", "danger")
                 with open(save_path, "wb") as fh:
                     fh.write(file_bytes)
         else:
             with open(save_path, "wb") as fh:
                 fh.write(file_bytes)
-            flash(f"File uploaded successfully as '{save_name}'!", "success")
+            flash(f"File uploaded locally to '{save_name}' (Temporary storage ONLY).", "warning")
         return redirect(url_for("dashboard"))
 
     return render_template("upload.html", uploaded=_uploaded_files())
